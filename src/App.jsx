@@ -30,15 +30,12 @@ const carregarImagemBase64 = async (url) => {
 };
 
 export default function App() {
-  // --- ESTADOS GERAIS DO SISTEMA ---
-  const [session, setSession] = useState(null);
+  // --- ESTADOS GERAIS DO SISTEMA (MODO DEMO SEM SENHA) ---
   const [loading, setLoading] = useState(true);
+  const [modoVisao, setModoVisao] = useState('loja'); // Alterna direto entre loja e admin
   const [vendas, setVendas] = useState([]);
   const [produtos, setProdutos] = useState([]); 
   const [clientes, setClientes] = useState([]); 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loginError, setLoginError] = useState('');
   
   // --- NAVEGAÇÃO E MENUS ---
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -73,7 +70,6 @@ export default function App() {
   const [isProdutoModalOpen, setIsProdutoModalOpen] = useState(false);
   const [produtoEditando, setProdutoEditando] = useState(null);
   
-  // AQUI ADICIONAMOS CORES E DESCRIÇÃO
   const [formProduto, setFormProduto] = useState({
     nome: '', 
     preco: '', 
@@ -92,8 +88,7 @@ export default function App() {
   const [clienteEditando, setClienteEditando] = useState(null);
   const [formCliente, setFormCliente] = useState({ nome: '', telefone: '' });
 
-  // --- ESTADOS DA VITRINE (ESTILO INVERNAL) ---
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  // --- ESTADOS DA VITRINE ---
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -109,39 +104,22 @@ export default function App() {
   const [corDetalhe, setCorDetalhe] = useState('');
   const [qtdDetalhe, setQtdDetalhe] = useState(1);
 
-  // --- AUTENTICAÇÃO E TEMPO REAL ---
+  // --- BUSCA DE DADOS (SEM PRECISAR DE LOGIN NA DEMO) ---
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    supabase.auth.onAuthStateChange((_event, session) => setSession(session));
     fetchProdutos(); 
+    fetchVendas();
+    fetchClientes();
+
+    const subVendas = supabase.channel('vendas-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, () => fetchVendas()).subscribe();
+    const subProdutos = supabase.channel('produtos-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, () => fetchProdutos()).subscribe();
+    const subClientes = supabase.channel('clientes-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, () => fetchClientes()).subscribe();
+
+    return () => { supabase.removeChannel(subVendas); supabase.removeChannel(subProdutos); supabase.removeChannel(subClientes); };
   }, []);
-
-  useEffect(() => {
-    if (session) {
-      fetchVendas();
-      fetchProdutos(); 
-      fetchClientes();
-
-      const subVendas = supabase.channel('vendas-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, () => fetchVendas()).subscribe();
-      const subProdutos = supabase.channel('produtos-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, () => fetchProdutos()).subscribe();
-      const subClientes = supabase.channel('clientes-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, () => fetchClientes()).subscribe();
-
-      return () => { supabase.removeChannel(subVendas); supabase.removeChannel(subProdutos); supabase.removeChannel(subClientes); };
-    }
-  }, [session]);
 
   const fetchVendas = async () => { const { data } = await supabase.from('vendas').select('*').order('data_venda', { ascending: false }); if (data) setVendas(data); };
   const fetchProdutos = async () => { const { data } = await supabase.from('produtos').select('*').order('nome', { ascending: true }); if (data) setProdutos(data); };
   const fetchClientes = async () => { const { data } = await supabase.from('clientes').select('*').order('nome', { ascending: true }); if (data) setClientes(data); };
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoginError('');
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setLoginError('E-mail ou senha incorretos.');
-  };
-
-  const handleLogout = async () => await supabase.auth.signOut();
 
   // ==========================================
   // LÓGICA DE VENDAS E BAIXA DE ESTOQUE
@@ -235,7 +213,7 @@ export default function App() {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm("Tem certeza que deseja excluir esta venda?")) { 
+    if (window.confirm("Tem certeza que deseja excluir esta venda? (Isso é uma Demo, pode apagar à vontade!)")) { 
       await supabase.from('vendas').delete().eq('id', id); 
       fetchVendas(); 
       setVendasSelecionadas(prev => prev.filter(item => item !== id));
@@ -245,7 +223,7 @@ export default function App() {
   const handleCobrarWhatsApp = (venda) => {
     const clienteRecord = clientes.find(c => c.nome.toLowerCase() === venda.cliente.toLowerCase());
     let url = '';
-    const message = `Olá *${venda.cliente}*, tudo bem?\n\nPassando para lembrar sobre a venda de *${venda.produto_nome}* realizada no dia ${formatDateBR(venda.data_venda)}. \n\nO valor de *${formatCurrency(venda.valor_total)}* já está disponível para acerto via PIX.\n\n_(Caso já tenha realizado o pagamento, por favor, desconsidere esta mensagem!)_`;
+    const message = `Olá *${venda.cliente}*, tudo bem?\n\nPassando para lembrar sobre a venda de *${venda.produto_nome}*... (MENSAGEM DE DEMO)`;
 
     if (clienteRecord && clienteRecord.telefone) {
       const numeroLimpo = clienteRecord.telefone.replace(/\D/g, '');
@@ -273,12 +251,12 @@ export default function App() {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(24);
         doc.setTextColor(44, 62, 80);
-        doc.text("Vendas Vitória", 45, 27);
+        doc.text("Vendas Vitória DEMO", 45, 27);
       } else {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(26);
         doc.setTextColor(44, 62, 80);
-        doc.text("Vendas Vitória", 105, 25, null, null, "center");
+        doc.text("Vendas Vitória DEMO", 105, 25, null, null, "center");
       }
 
       doc.setFont("helvetica", "normal");
@@ -351,9 +329,9 @@ export default function App() {
       doc.setFont("helvetica", "italic");
       doc.setTextColor(150, 150, 150);
       doc.text(`Documento gerado eletronicamente em: ${dataHoraEmissao}`, 105, 275, null, null, "center");
-      doc.text("Vendas Vitória - Gestão & Qualidade", 105, 280, null, null, "center");
+      doc.text("Vendas Vitória DEMO - Gestão & Qualidade", 105, 280, null, null, "center");
 
-      const nomeArquivo = `Recibo_${venda.cliente.replace(/\s+/g, '_')}_${venda.data_venda}.pdf`;
+      const nomeArquivo = `Recibo_Demo_${venda.cliente.replace(/\s+/g, '_')}_${venda.data_venda}.pdf`;
       doc.save(nomeArquivo);
       
     } catch (err) {
@@ -397,7 +375,7 @@ export default function App() {
   };
 
   const handleSugestaoFidelidadeWhats = (alerta) => {
-    const mensagem = `Olá *${alerta.nome}*, tudo bem? Saudades!\n\nPassando para saber como você está. Vi aqui no sistema que faz ${alerta.diasSumido} dias desde a sua última compra com a gente.\n\nLembrei que você gosta muito de *${alerta.produtoFavorito}* (já levou ${alerta.totalComprado} unidades no total!). Como chegaram novidades e reposições no estoque, pensei em te avisar em primeira mão para dar uma olhada e renovar o armário! \n\nSe quiser conferir, me avisa! 😉`;
+    const mensagem = `Olá *${alerta.nome}*, tudo bem? Saudades! (MENSAGEM DE DEMONSTRAÇÃO)`;
     let url = '';
     if (alerta.telefone) {
       const numeroLimpo = alerta.telefone.replace(/\D/g, '');
@@ -428,8 +406,6 @@ export default function App() {
       if (!error && data) {
         const { data: urlData } = supabase.storage.from('produtos').getPublicUrl(fileName);
         finalImageUrl = urlData.publicUrl;
-      } else {
-        alert("Erro ao enviar a imagem. Verifique se configurou a política 'Permitir tudo' no bucket 'produtos' no Supabase.");
       }
     }
 
@@ -532,7 +508,7 @@ export default function App() {
   };
 
   // ==========================================
-  // LÓGICA E RENDERIZAÇÃO DA VITRINE PROFISSIONAL
+  // LÓGICA E RENDERIZAÇÃO DA VITRINE (LOJA)
   // ==========================================
   const determinarTamanhos = (nomeProduto) => {
     const nome = nomeProduto.toLowerCase();
@@ -558,7 +534,6 @@ export default function App() {
   const handleAddToCart = () => {
     if (!produtoSelecionado) return;
     
-    // Identificador único para a variação exata que o cliente escolheu no modal
     const itemId = `${produtoSelecionado.id}-${tamanhoDetalhe}-${corDetalhe}`;
     const existing = cart.find(item => item.itemId === itemId);
     
@@ -615,8 +590,7 @@ export default function App() {
 
     await Promise.all(promessasVenda);
 
-    // Mensagem Limpa de WhatsApp
-    let msg = `NOVO PEDIDO - ESTILO INVERNAL\n\n`;
+    let msg = `NOVO PEDIDO - DEMONSTRAÇÃO\n\n`;
     msg += `Cliente: ${formCheckout.nome}\n`;
     msg += `Telefone: ${formCheckout.whatsapp}\n`;
     msg += `Entrega: ${local}\n\n`;
@@ -640,7 +614,7 @@ export default function App() {
   };
 
   const copiarPix = () => {
-    navigator.clipboard.writeText("viihbarbosa2002@gmail.com");
+    navigator.clipboard.writeText("demo@email.com");
     alert("Chave PIX copiada com sucesso!");
   };
 
@@ -653,8 +627,8 @@ export default function App() {
         {/* CABEÇALHO DA LOJA */}
         <header style={{ backgroundColor: '#fff', padding: '15px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100, borderBottom: '1px solid #eee' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <img src="/logo.png" alt="Logo" style={{ width: '45px', borderRadius: '8px' }} />
-            <h1 style={{ margin: 0, color: '#111', fontSize: '1.4rem', fontWeight: '800', letterSpacing: '-0.5px' }}>ESTILO INVERNAL</h1>
+            <div style={{ width: '45px', height: '45px', borderRadius: '8px', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold' }}>D</div>
+            <h1 style={{ margin: 0, color: '#111', fontSize: '1.4rem', fontWeight: '800', letterSpacing: '-0.5px' }}>MODO DEMO</h1>
           </div>
           <button onClick={() => setIsCartOpen(true)} style={{ background: '#f1f5f9', border: 'none', padding: '10px 16px', borderRadius: '30px', color: '#0f172a', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
             🛒 Sacola <span style={{ background: '#0f172a', color: 'white', borderRadius: '50%', padding: '2px 8px', fontSize: '0.8rem' }}>{cart.length}</span>
@@ -663,8 +637,8 @@ export default function App() {
 
         {/* Banner */}
         <div style={{ background: 'linear-gradient(135deg, #00BFFF 0%, #87CEEB 100%)', padding: '40px 20px', textAlign: 'center', color: 'white' }}>
-          <h2 style={{ fontSize: '2rem', margin: '0 0 10px 0', textShadow: '2px 2px 4px rgba(0,0,0,0.2)' }}>❄️ ESTILO INVERNAL</h2>
-          <p style={{ fontSize: '1.1rem', maxWidth: '600px', margin: '0 auto', lineHeight: '1.6', textShadow: '1px 1px 2px rgba(0,0,0,0.1)' }}>Conforto, estilo e muito mais quentinho para o seu inverno! Entrega no seu setor!</p>
+          <h2 style={{ fontSize: '2rem', margin: '0 0 10px 0', textShadow: '2px 2px 4px rgba(0,0,0,0.2)' }}>❄️ ESTILO INVERNAL DEMO</h2>
+          <p style={{ fontSize: '1.1rem', maxWidth: '600px', margin: '0 auto', lineHeight: '1.6', textShadow: '1px 1px 2px rgba(0,0,0,0.1)' }}>Ambiente de testes do Portfólio DevFuture.</p>
         </div>
 
         {/* VITRINE PRO (RENNER STYLE) */}
@@ -685,7 +659,6 @@ export default function App() {
                   onMouseEnter={(e) => { if(disponivel) e.currentTarget.style.transform = 'translateY(-5px)' }}
                   onMouseLeave={(e) => { if(disponivel) e.currentTarget.style.transform = 'translateY(0)' }}
                 >
-                  {/* FOTO ALTA E CLEAN (objectFit 'contain' para mostrar a foto inteira sem cortes) */}
                   <div style={{ height: '320px', backgroundColor: '#e2e8f0', borderRadius: '8px', overflow: 'hidden', position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                     {p.imagem_url ? (
                       <img src={p.imagem_url} alt={p.nome} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
@@ -693,14 +666,12 @@ export default function App() {
                       <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', fontSize: '4rem' }}>❄️</div>
                     )}
                     
-                    {/* Badge de Esgotado */}
                     {!disponivel && (
                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: 'white', textAlign: 'center', padding: '10px', fontWeight: 'bold' }}>ESGOTADO</div>
                     )}
                     <div style={{ position: 'absolute', top: '15px', right: '15px', background: 'white', borderRadius: '50%', width: '35px', height: '35px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>🤍</div>
                   </div>
                   
-                  {/* TEXTOS CLEAN (SEM BOTÃO) */}
                   <div style={{ padding: '15px 5px' }}>
                     <h4 style={{ margin: '0 0 5px 0', color: '#334155', fontSize: '1rem', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome}</h4>
                     <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#0f172a' }}>{formatCurrency(p.preco)}</div>
@@ -712,10 +683,15 @@ export default function App() {
           </div>
         </div>
 
-        {/* Rodapé Loja */}
+        {/* Rodapé Loja com BOTÃO MÁGICO DO PAINEL */}
         <footer style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b', borderTop: '1px solid #e2e8f0', marginTop: '40px', background: '#fff' }}>
-          <p>© {new Date().getFullYear()} Estilo Invernal. Todos os direitos reservados.</p>
-          <button onClick={() => setShowAdminLogin(true)} style={{ background: 'transparent', border: 'none', color: '#cbd5e1', cursor: 'pointer', marginTop: '10px' }}>🔒 Acesso Administrativo</button>
+          <p>© {new Date().getFullYear()} Demo Portfólio. Ambiente de Testes.</p>
+          <button 
+            onClick={() => setModoVisao('admin')} 
+            style={{ background: '#0f172a', border: 'none', color: '#fff', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', marginTop: '15px', fontWeight: 'bold', fontSize: '1.1rem' }}
+          >
+            🔓 Acessar Painel Admin (Demo)
+          </button>
         </footer>
 
         {/* ================= MODAL LUPA / ZOOM DA IMAGEM ================= */}
@@ -728,15 +704,13 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL DETALHE DO PRODUTO (RENNER STYLE) ================= */}
+        {/* ================= MODAL DETALHE DO PRODUTO ================= */}
         {produtoSelecionado && (
           <div className="modal-overlay" onClick={() => setProdutoSelecionado(null)} style={{ zIndex: 2000, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
             <div className="modal-content" onClick={e => e.stopPropagation()} style={{ background: '#fff', width: '100%', maxWidth: '900px', maxHeight: '90vh', borderRadius: '12px', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
               <button onClick={() => setProdutoSelecionado(null)} style={{ position: 'absolute', top: '15px', right: '15px', background: '#f1f5f9', border: 'none', width: '40px', height: '40px', borderRadius: '50%', fontSize: '1.2rem', cursor: 'pointer', zIndex: 10 }}>✖</button>
               
               <div style={{ display: 'flex', flexWrap: 'wrap', height: '100%', overflowY: 'auto' }}>
-                
-                {/* Lado Esquerdo: Imagem Gigante (Clicável para dar Zoom com Contain) */}
                 <div 
                   style={{ flex: '1 1 400px', background: '#f8fafc', minHeight: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-in' }}
                   onClick={() => setImagemAmpliada(produtoSelecionado.imagem_url)}
@@ -748,7 +722,6 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Lado Direito: Informações e Compra */}
                 <div style={{ flex: '1 1 400px', padding: '40px', display: 'flex', flexDirection: 'column' }}>
                   <h2 style={{ margin: '0 0 10px 0', fontSize: '1.8rem', color: '#0f172a', fontWeight: '800' }}>{produtoSelecionado.nome}</h2>
                   
@@ -759,7 +732,6 @@ export default function App() {
 
                   <div style={{ fontSize: '2rem', fontWeight: '800', color: '#dc2626', marginBottom: '25px' }}>{formatCurrency(produtoSelecionado.preco)}</div>
 
-                  {/* CORES (Se existirem) */}
                   {obterCoresArray(produtoSelecionado.cores).length > 0 && (
                     <div style={{ marginBottom: '25px' }}>
                       <span style={{ display: 'block', fontSize: '0.9rem', color: '#475569', marginBottom: '8px', fontWeight: '600' }}>Cor Selecionada: <strong style={{color: '#0f172a'}}>{corDetalhe}</strong></span>
@@ -777,7 +749,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* TAMANHOS EM CAIXINHAS */}
                   <div style={{ marginBottom: '25px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <span style={{ fontSize: '0.9rem', color: '#475569', fontWeight: '600' }}>Tamanho: <strong style={{color: '#0f172a'}}>{tamanhoDetalhe}</strong></span>
@@ -796,7 +767,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* QUANTIDADE E BOTÃO DE COMPRA */}
                   <div style={{ display: 'flex', gap: '15px', marginTop: 'auto', marginBottom: '30px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
                       <button onClick={() => setQtdDetalhe(Math.max(1, qtdDetalhe - 1))} style={{ padding: '0 15px', height: '100%', background: '#f8fafc', border: 'none', borderRight: '1px solid #cbd5e1', fontSize: '1.2rem', cursor: 'pointer' }}>-</button>
@@ -809,14 +779,12 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* DESCRIÇÃO DO PRODUTO */}
                   {produtoSelecionado.descricao && (
                     <div style={{ borderTop: '1px solid #eee', paddingTop: '20px' }}>
                       <h4 style={{ margin: '0 0 10px 0', color: '#0f172a' }}>Descrição do Produto</h4>
                       <p style={{ color: '#64748b', fontSize: '0.9rem', lineHeight: '1.6', margin: 0, whiteSpace: 'pre-line' }}>{produtoSelecionado.descricao}</p>
                     </div>
                   )}
-                  
                 </div>
               </div>
             </div>
@@ -931,13 +899,11 @@ export default function App() {
                   <p style={{ color: '#64748b', marginBottom: '20px' }}>O seu pedido será confirmado automaticamente no nosso WhatsApp após a validação.</p>
                   <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '2px dashed #cbd5e1', marginBottom: '20px' }}>
                     
-                    <img src="/qrcode-pix.jpeg" alt="QR Code PIX" style={{ maxWidth: '100%', maxHeight: '250px', borderRadius: '10px', marginBottom: '15px' }} />
-                    
                     <div style={{ fontSize: '1.1rem', color: '#333' }}>Total da Compra:</div>
                     <div style={{ fontSize: '2.5rem', fontWeight: '900', color: '#dc2626', margin: '10px 0' }}>{formatCurrency(cartTotal)}</div>
                     <p style={{ margin: '15px 0 5px 0', fontSize: '0.9rem', color: '#64748b', fontWeight: 'bold' }}>Chave PIX (E-mail):</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                      <code style={{ flexGrow: 1, fontSize: '1.1rem', color: '#0f172a', fontWeight: 'bold' }}>viihbarbosa2002@gmail.com</code>
+                      <code style={{ flexGrow: 1, fontSize: '1.1rem', color: '#0f172a', fontWeight: 'bold' }}>demo@email.com</code>
                       <button onClick={copiarPix} style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Copiar</button>
                     </div>
                   </div>
@@ -960,8 +926,7 @@ export default function App() {
   const trintaDiasAtras = new Date(); trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
   const dataLimite = trintaDiasAtras.toISOString().split('T')[0];
   const fiadosAtrasados = vendas.filter(v => v.status === 'FIADO' && v.data_venda < dataLimite);
-  const totalAtrasado = fiadosAtrasados.reduce((sum, v) => sum + Number(v.valor_total), 0);
-
+  
   const vendasFiltradas = vendas.filter(venda => {
     if (filtroFiadoAtrasado) return venda.status === 'FIADO' && venda.data_venda < dataLimite;
     if (!filtroAtivo) return true; 
@@ -1030,9 +995,8 @@ export default function App() {
 
   const listaFidelidadeAlertas = obterAlertasFidelidade();
 
-  // --- NOVO: LÓGICA DE FECHAMENTO DE CAIXA MENSAL ---
   const agrupadoPorMes = vendas.reduce((acc, v) => {
-    const mesAno = v.data_venda.substring(0, 7); // Formato: "YYYY-MM"
+    const mesAno = v.data_venda.substring(0, 7);
     if (!acc[mesAno]) acc[mesAno] = { faturamento: 0, custo: 0, lucro: 0, fiado: 0 };
     
     if (v.status === 'PAGO') {
@@ -1047,30 +1011,21 @@ export default function App() {
   const historicoFechamento = Object.entries(agrupadoPorMes).map(([mes, dados]) => ({ mes, ...dados })).sort((a,b) => b.mes.localeCompare(a.mes));
 
   // ==========================================
-  // RENDERIZAÇÃO PRINCIPAL (INTERCEPTADOR)
+  // RENDERIZAÇÃO PRINCIPAL INTERCEPTADOR (SEM LOGIN)
   // ==========================================
-  if (!session) {
-    if (!showAdminLogin) {
-      return renderLoja();
-    }
-    
-    return (
-      <div className="login-container">
-        <form className="login-form" onSubmit={handleLogin}>
-          <img src="/logo.png" alt="Logo" style={{ width: '80px', margin: '0 auto 20px', display: 'block', borderRadius: '12px' }} />
-          <h2 style={{ textAlign: 'center', marginBottom: '20px', color: '#2c3e50' }}>Gestão Vendas Vitória</h2>
-          {loginError && <p className="error-msg">{loginError}</p>}
-          <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} required className="form-control" />
-          <input type="password" placeholder="Senha" value={password} onChange={e => setPassword(e.target.value)} required className="form-control" />
-          <button type="submit" className="btn-primary w-100">Entrar no Painel</button>
-          <button type="button" onClick={() => setShowAdminLogin(false)} style={{ background: 'transparent', color: '#0056b3', marginTop: '15px', border: 'none', cursor: 'pointer', width: '100%', fontWeight: 'bold' }}>← Voltar para a Loja Virtual</button>
-        </form>
-      </div>
-    );
+  
+  if (modoVisao === 'loja') {
+    return renderLoja();
   }
 
   return (
-    <div className="container">
+    <div className="container" style={{ background: '#f4f6f8', minHeight: '100vh', padding: '20px' }}>
+      
+      {/* MENSAGEM DE AVISO DA DEMO */}
+      <div style={{ background: '#0f172a', color: 'white', padding: '15px', borderRadius: '12px', marginBottom: '20px', textAlign: 'center', fontWeight: 'bold', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+        ⚠️ VOCÊ ESTÁ NO MODO DEMONSTRAÇÃO. Todos os dados aqui são fictícios e podem ser apagados ou alterados à vontade.
+      </div>
+
       {/* SIDEBAR (MENU) */}
       {isSidebarOpen && (
         <div className="modal-overlay" onClick={() => setIsSidebarOpen(false)}>
@@ -1082,12 +1037,10 @@ export default function App() {
               <button className={`btn ${paginaAtual === 'estoque' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setPaginaAtual('estoque'); setIsSidebarOpen(false); }} style={{ textAlign: 'left', padding: '12px' }}>📦 Controle de Estoque</button>
               <button className={`btn ${paginaAtual === 'clientes' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setPaginaAtual('clientes'); setIsSidebarOpen(false); }} style={{ textAlign: 'left', padding: '12px' }}>👥 Cadastro de Clientes</button>
               <button className={`btn ${paginaAtual === 'dashboard' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setPaginaAtual('dashboard'); setIsSidebarOpen(false); }} style={{ textAlign: 'left', padding: '12px' }}>📊 Dashboard (BI)</button>
-              
-              {/* NOVO BOTÃO DE FECHAMENTO */}
               <button className={`btn ${paginaAtual === 'fechamento' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setPaginaAtual('fechamento'); setIsSidebarOpen(false); }} style={{ textAlign: 'left', padding: '12px', background: paginaAtual === 'fechamento' ? '#007bff' : '#e2e8f0', color: paginaAtual === 'fechamento' ? 'white' : '#333' }}>📅 Fechamento de Caixa</button>
 
               <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: '1px solid #eee' }}>
-                <button className="btn btn-danger" style={{ width: '100%' }} onClick={handleLogout}>Sair do Sistema</button>
+                <button className="btn btn-danger" style={{ width: '100%' }} onClick={() => setModoVisao('loja')}>Sair e Voltar à Loja</button>
               </div>
             </div>
           </div>
@@ -1098,8 +1051,8 @@ export default function App() {
       <header style={{ display: 'flex', alignItems: 'center', background: '#2c3e50', padding: '12px 20px', color: 'white', borderRadius: '12px', marginBottom: '20px', gap: '20px' }}>
         <button onClick={() => setIsSidebarOpen(true)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'white', fontSize: '24px' }}>=</button>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <img src="/logo.png" style={{ width: '38px', borderRadius: '8px', background: 'white' }} />
-          <h1 style={{ margin: 0, fontSize: '1.4rem' }}>Vendas Vitória</h1>
+          <div style={{ width: '38px', height: '38px', borderRadius: '8px', background: 'white', color: '#2c3e50', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>D</div>
+          <h1 style={{ margin: 0, fontSize: '1.4rem' }}>Painel DEMO</h1>
         </div>
       </header>
       
@@ -1158,11 +1111,11 @@ export default function App() {
             {vendasSelecionadas.length > 0 && (
               <div style={{ background: '#e3f2fd', border: '1px solid #b8daff', padding: '15px', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', animation: 'fadeIn 0.3s ease-in' }}>
                  <div>
-                    <h4 style={{ margin: '0 0 5px 0', color: '#0056b3' }}>{vendasSelecionadas.length} Vendas Selecionadas (Calculadora de Lote)</h4>
+                    <h4 style={{ margin: '0 0 5px 0', color: '#0056b3' }}>{vendasSelecionadas.length} Vendas Selecionadas</h4>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px', fontSize: '1rem', color: '#333' }}>
                        <span><strong>Valor Total:</strong> {formatCurrency(totalSelecionado)}</span>
-                       <span style={{ color: '#dc3545' }}><strong>Custo de Reposição:</strong> {formatCurrency(custoSelecionado)}</span>
-                       <span style={{ color: '#28a745' }}><strong>Lucro do Lote:</strong> {formatCurrency(lucroSelecionado)}</span>
+                       <span style={{ color: '#dc3545' }}><strong>Custo:</strong> {formatCurrency(custoSelecionado)}</span>
+                       <span style={{ color: '#28a745' }}><strong>Lucro:</strong> {formatCurrency(lucroSelecionado)}</span>
                     </div>
                  </div>
                  <button className="btn-sm btn-secondary" onClick={() => setVendasSelecionadas([])}>Limpar Seleção</button>
@@ -1175,7 +1128,6 @@ export default function App() {
                 return (
                 <div key={v.id} className="venda-card" style={{ background: isSelected ? '#f8faff' : 'white', borderRadius: '10px', padding: '15px', borderLeft: `5px solid ${v.status === 'PAGO' ? '#28a745' : v.status === 'FIADO' ? '#dc3545' : '#ffc107'}`, border: isSelected ? '2px solid #007bff' : 'none' }}>
                   
-                  {/* CABEÇALHO DO CARD COM CHECKBOX */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <input 
@@ -1196,7 +1148,6 @@ export default function App() {
                   
                   {v.observacao && <p style={{ fontSize: '0.85rem', color: '#888', fontStyle: 'italic', margin: '0 0 10px 28px' }}>Obs: {v.observacao}</p>}
 
-                  {/* BARRA DE AÇÕES */}
                   <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '10px' }}>
                     
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -1205,19 +1156,12 @@ export default function App() {
                     </div>
 
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'flex-end' }}>
-                      
-                      <button className="btn-sm" style={{ flex: '1 1 auto', background: '#f8f9fa', color: '#333', border: '1px solid #ddd', padding: '8px', borderRadius: '6px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }} onClick={() => handleGerarRecibo(v)}>
-                        🖨️ Recibo
-                      </button>
-
+                      <button className="btn-sm" style={{ flex: '1 1 auto', background: '#f8f9fa', color: '#333', border: '1px solid #ddd', padding: '8px', borderRadius: '6px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }} onClick={() => handleGerarRecibo(v)}>🖨️ Recibo</button>
                       {v.status === 'FIADO' && (
-                        <button className="btn-sm" style={{ flex: '1 1 auto', background: '#25D366', color: 'white', border: 'none', padding: '8px', borderRadius: '6px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }} onClick={() => handleCobrarWhatsApp(v)}>
-                          💬 Cobrar
-                        </button>
+                        <button className="btn-sm" style={{ flex: '1 1 auto', background: '#25D366', color: 'white', border: 'none', padding: '8px', borderRadius: '6px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }} onClick={() => handleCobrarWhatsApp(v)}>💬 Cobrar</button>
                       )}
-
-                      <button className="btn-sm" style={{ flex: '0 1 auto', background: '#e9ecef', color: '#333', border: 'none', padding: '8px 15px', borderRadius: '6px' }} onClick={() => handleEdit(v)} title="Editar Venda">✏️</button>
-                      <button className="btn-sm" style={{ flex: '0 1 auto', background: '#fee2e2', color: '#dc3545', border: 'none', padding: '8px 15px', borderRadius: '6px' }} onClick={() => handleDelete(v.id)} title="Apagar Venda">🗑️</button>
+                      <button className="btn-sm" style={{ flex: '0 1 auto', background: '#e9ecef', color: '#333', border: 'none', padding: '8px 15px', borderRadius: '6px' }} onClick={() => handleEdit(v)} title="Editar">✏️</button>
+                      <button className="btn-sm" style={{ flex: '0 1 auto', background: '#fee2e2', color: '#dc3545', border: 'none', padding: '8px 15px', borderRadius: '6px' }} onClick={() => handleDelete(v.id)} title="Apagar">🗑️</button>
                     </div>
                   </div>
 
@@ -1254,7 +1198,7 @@ export default function App() {
                   </div>
                   
                   <div style={{ background: '#f1f8ff', padding: '10px', borderRadius: '6px', marginTop: '10px', border: '1px solid #cce5ff', fontSize: '0.9rem', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Lucro Padrão: <strong>{formatCurrency(lucroReais)}</strong></span>
+                    <span>Lucro: <strong>{formatCurrency(lucroReais)}</strong></span>
                     <span style={{ color: '#0056b3', fontWeight: 'bold' }}>Margem: {margemLucro.toFixed(1)}%</span>
                   </div>
 
@@ -1280,12 +1224,12 @@ export default function App() {
         <div style={{ marginBottom: '100px' }}>
           
           <div style={{ background: '#fff3cd', color: '#856404', padding: '20px', borderRadius: '12px', marginBottom: '30px', borderLeft: '6px solid #ffc107', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-            <h3 style={{ margin: '0 0 5px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>🎯 Alertas de Mini-Marketing (Fidelidade)</h3>
-            <p style={{ margin: '0 0 15px 0', fontSize: '0.95rem', color: '#665214' }}>Clientes sumidos há mais de 45 dias. O sistema cruzou o histórico e já sugere o produto que eles mais adoram para renovar o estoque pessoal!</p>
+            <h3 style={{ margin: '0 0 5px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>🎯 Alertas de Mini-Marketing</h3>
+            <p style={{ margin: '0 0 15px 0', fontSize: '0.95rem', color: '#665214' }}>Clientes sumidos há mais de 45 dias.</p>
             
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: '12px' }}>
               {listaFidelidadeAlertas.length === 0 ? (
-                <p style={{ fontStyle: 'italic', margin: 0, color: '#856404' }}>Nenhum cliente sumido por mais de 45 dias. Excelente engajamento!</p>
+                <p style={{ fontStyle: 'italic', margin: 0, color: '#856404' }}>Nenhum cliente sumido por mais de 45 dias.</p>
               ) : (
                 listaFidelidadeAlertas.map(alerta => (
                   <div key={alerta.id} style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #ffeeba', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -1293,11 +1237,11 @@ export default function App() {
                       <strong style={{ color: '#333', fontSize: '1.05rem' }}>{alerta.nome}</strong>
                       <div style={{ fontSize: '0.85rem', color: '#721c24', fontWeight: 'bold', margin: '3px 0' }}>⚠️ Sumido(a) há {alerta.diasSumido} dias</div>
                       <p style={{ margin: '5px 0', fontSize: '0.9rem', color: '#555' }}>
-                        Item de Afinidade: <span style={{ background: '#e2f0d9', color: '#385723', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>{alerta.produtoFavorito}</span> <small>({alerta.totalComprado} un)</small>
+                        Afinidade: <span style={{ background: '#e2f0d9', color: '#385723', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>{alerta.produtoFavorito}</span>
                       </p>
                     </div>
                     <button onClick={() => handleSugestaoFidelidadeWhats(alerta)} style={{ background: '#ffc107', color: '#333', border: 'none', padding: '8px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', marginTop: '10px', width: '100%' }}>
-                      💡 Sugerir {alerta.produtoFavorito}
+                      💡 Sugerir
                     </button>
                   </div>
                 ))
@@ -1311,13 +1255,13 @@ export default function App() {
           </div>
           
           <div className="historico-cards-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '15px' }}>
-            {clientes.length === 0 ? <p style={{ color: '#666' }}>Nenhum cliente cadastrado ainda. Salve uma venda ou clique acima para adicionar.</p> : null}
+            {clientes.length === 0 ? <p style={{ color: '#666' }}>Nenhum cliente cadastrado ainda.</p> : null}
             {clientes.map(c => (
               <div key={c.id} className="venda-card" style={{ background: 'white', borderRadius: '10px', padding: '15px', borderLeft: `5px solid #007bff` }}>
                 <h3 style={{ margin: '0 0 10px 0', fontSize: '1.2rem' }}>{c.nome}</h3>
-                <p style={{ color: '#666', margin: 0 }}>📱 {c.telefone || 'Sem telefone cadastrado'}</p>
+                <p style={{ color: '#666', margin: 0 }}>📱 {c.telefone || 'Sem telefone'}</p>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '15px', borderTop: '1px solid #eee', paddingTop: '10px' }}>
-                  <button className="btn-sm btn-primary" onClick={() => handleEditCliente(c)}>✏️ Editar / Adicionar Whats</button>
+                  <button className="btn-sm btn-primary" onClick={() => handleEditCliente(c)}>✏️ Editar</button>
                 </div>
               </div>
             ))}
@@ -1334,11 +1278,11 @@ export default function App() {
             <h3 style={{ margin: '0 0 15px 0', color: '#444' }}>Resumo Geral</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
               <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '8px', borderLeft: '4px solid #007bff' }}>
-                <span style={{ fontSize: '0.9rem', color: '#666' }}>Total de Vendas Registradas</span>
+                <span style={{ fontSize: '0.9rem', color: '#666' }}>Total Vendas</span>
                 <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#333' }}>{vendas.length}</div>
               </div>
               <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '8px', borderLeft: '4px solid #17a2b8' }}>
-                <span style={{ fontSize: '0.9rem', color: '#666' }}>Ticket Médio (Por Venda)</span>
+                <span style={{ fontSize: '0.9rem', color: '#666' }}>Ticket Médio</span>
                 <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#333' }}>
                   {formatCurrency(vendas.reduce((acc, v) => acc + Number(v.valor_total), 0) / (vendas.length || 1))}
                 </div>
@@ -1348,31 +1292,15 @@ export default function App() {
 
           <div style={{ background: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)', marginBottom: '20px' }}>
             <h3 style={{ margin: '0 0 15px 0', color: '#2c3e50' }}>🔍 Raio-X por Cliente</h3>
-            
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '20px' }}>
-              <div>
-                <label style={{display: 'block', fontSize: '0.9rem', color: '#666'}}>Nome do Cliente:</label>
-                <input type="text" className="form-control" placeholder="Ex: Maria" value={biClienteNome} onChange={(e) => setBiClienteNome(e.target.value)} />
-              </div>
-              <div>
-                <label style={{display: 'block', fontSize: '0.9rem', color: '#666'}}>Data Inicial:</label>
-                <input type="date" className="form-control" value={biDataInicio} onChange={(e) => setBiDataInicio(e.target.value)} />
-              </div>
-              <div>
-                <label style={{display: 'block', fontSize: '0.9rem', color: '#666'}}>Data Final:</label>
-                <input type="date" className="form-control" value={biDataFim} onChange={(e) => setBiDataFim(e.target.value)} />
-              </div>
-            </div>
-
-            <div style={{ background: '#e9f5ff', padding: '15px', borderRadius: '8px', border: '1px solid #b8daff', textAlign: 'center', marginBottom: '25px' }}>
-              <p style={{ fontSize: '1.1rem', color: '#004085', margin: 0 }}>
-                {biClienteNome ? `O cliente "${biClienteNome}"` : 'Na seleção atual, os clientes'} compraram <strong>{biTotalItens} produtos</strong> e gastaram um total de <strong>{formatCurrency(biTotalGasto)}</strong>.
-              </p>
+              <div><label style={{display: 'block', fontSize: '0.9rem', color: '#666'}}>Nome:</label><input type="text" className="form-control" value={biClienteNome} onChange={(e) => setBiClienteNome(e.target.value)} /></div>
+              <div><label style={{display: 'block', fontSize: '0.9rem', color: '#666'}}>Data Início:</label><input type="date" className="form-control" value={biDataInicio} onChange={(e) => setBiDataInicio(e.target.value)} /></div>
+              <div><label style={{display: 'block', fontSize: '0.9rem', color: '#666'}}>Data Fim:</label><input type="date" className="form-control" value={biDataFim} onChange={(e) => setBiDataFim(e.target.value)} /></div>
             </div>
 
             {dadosGraficoRaioX.length > 0 ? (
               <div style={{ width: '100%', height: 320 }}>
-                <h4 style={{ margin: '0 0 10px 0', color: '#555', fontSize: '1rem', textAlign: 'center' }}>Distribuição de Gastos do Cliente</h4>
+                <h4 style={{ margin: '0 0 10px 0', color: '#555', fontSize: '1rem', textAlign: 'center' }}>Distribuição de Gastos</h4>
                 <ResponsiveContainer>
                   <BarChart data={dadosGraficoRaioX} margin={{ top: 5, right: 20, bottom: 70, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
@@ -1383,14 +1311,12 @@ export default function App() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            ) : (
-              <p style={{textAlign: 'center', color: '#999'}}>Nenhuma venda encontrada para esse filtro.</p>
-            )}
+            ) : (<p style={{textAlign: 'center', color: '#999'}}>Nenhuma venda encontrada para esse filtro.</p>)}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '20px' }}>
             <div style={{ background: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
-              <h3 style={{ margin: '0 0 20px 0', color: '#2c3e50', fontSize: '1.1rem' }}>📈 Evolução de Vendas (R$)</h3>
+              <h3 style={{ margin: '0 0 20px 0', color: '#2c3e50', fontSize: '1.1rem' }}>📈 Evolução de Vendas</h3>
               <div style={{ width: '100%', height: 320 }}>
                 <ResponsiveContainer>
                   <LineChart data={dadosGraficoLinha} margin={{ top: 5, right: 20, bottom: 40, left: 0 }}>
@@ -1426,7 +1352,6 @@ export default function App() {
       {paginaAtual === 'fechamento' && (
         <div style={{ marginBottom: '100px' }}>
           <h2 style={{ color: '#2c3e50', marginBottom: '20px' }}>📅 Fechamento de Caixa Mensal</h2>
-          
           <div style={{ display: 'grid', gap: '20px' }}>
             {historicoFechamento.length === 0 ? (
               <p style={{ color: '#666' }}>Ainda não há dados suficientes para o fechamento de caixa.</p>
@@ -1434,30 +1359,21 @@ export default function App() {
               historicoFechamento.map(mes => {
                 const partesMes = mes.mes.split('-');
                 const nomeMes = new Date(partesMes[0], partesMes[1] - 1, 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
-                
                 return (
                   <div key={mes.mes} style={{ background: 'white', padding: '20px', borderRadius: '12px', borderLeft: '6px solid #007bff', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
                     <h3 style={{ margin: '0 0 15px 0', color: '#333', textTransform: 'capitalize' }}>{nomeMes}</h3>
-                    
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px' }}>
                       <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '8px' }}>
                         <span style={{ fontSize: '0.9rem', color: '#666', display: 'block' }}>Faturamento Bruto</span>
                         <strong style={{ fontSize: '1.2rem', color: '#333' }}>{formatCurrency(mes.faturamento)}</strong>
                       </div>
-                      
                       <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '8px' }}>
                         <span style={{ fontSize: '0.9rem', color: '#666', display: 'block' }}>Custo (Estoque Reposto)</span>
                         <strong style={{ fontSize: '1.2rem', color: '#dc3545' }}>{formatCurrency(mes.custo)}</strong>
                       </div>
-                      
                       <div style={{ background: '#e2f0d9', padding: '15px', borderRadius: '8px', border: '1px solid #c3e6cb' }}>
                         <span style={{ fontSize: '0.9rem', color: '#155724', display: 'block' }}>Lucro Líquido Real</span>
                         <strong style={{ fontSize: '1.3rem', color: '#28a745' }}>{formatCurrency(mes.lucro)}</strong>
-                      </div>
-                      
-                      <div style={{ background: '#fff3cd', padding: '15px', borderRadius: '8px', border: '1px solid #ffeeba' }}>
-                        <span style={{ fontSize: '0.9rem', color: '#856404', display: 'block' }}>Fiado Pendente</span>
-                        <strong style={{ fontSize: '1.2rem', color: '#856404' }}>{formatCurrency(mes.fiado)}</strong>
                       </div>
                     </div>
                   </div>
@@ -1469,150 +1385,62 @@ export default function App() {
       )}
 
       {/* --- MODAIS DE INSERÇÃO --- */}
-      
-      {/* Venda */}
       {isModalOpen && (
         <div className="modal-overlay" onClick={handleCloseModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <button className="close-modal" onClick={handleCloseModal}>✖</button>
             <h2 style={{ marginTop: 0 }}>{itemEditando ? 'Editar Venda' : 'Registrar Venda'}</h2>
             <form onSubmit={handleSaveVenda} style={{ marginTop: '20px' }}>
-              <div className="form-group">
-                <label>Nome do Cliente</label>
-                <input type="text" name="cliente" className="form-control" placeholder="Digite o nome..." list="lista-clientes" value={formData.cliente} onChange={handleFormChange} required autoComplete="off" />
-                <datalist id="lista-clientes">
-                  {clientes.map(c => <option key={c.id} value={c.nome} />)}
-                </datalist>
-                <small style={{color: '#666'}}>Se for um nome novo, o sistema irá cadastrá-lo automaticamente.</small>
-              </div>
+              <div className="form-group"><label>Nome do Cliente</label><input type="text" name="cliente" className="form-control" list="lista-clientes" value={formData.cliente} onChange={handleFormChange} required autoComplete="off" /></div>
               <div className="form-row">
-                <div className="form-group">
-                  <label>Data</label>
-                  <input type="date" name="dataVenda" className="form-control" value={formData.dataVenda} onChange={handleFormChange} required />
-                </div>
-                <div className="form-group">
-                  <label>Status</label>
-                  <select name="status" className="form-control" value={formData.status} onChange={handleFormChange} required>
-                    <option value="PAGO">PAGO</option>
-                    <option value="FIADO">FIADO</option>
-                    <option value="ENCOMENDA">ENCOMENDA</option>
-                  </select>
-                </div>
+                <div className="form-group"><label>Data</label><input type="date" name="dataVenda" className="form-control" value={formData.dataVenda} onChange={handleFormChange} required /></div>
+                <div className="form-group"><label>Status</label><select name="status" className="form-control" value={formData.status} onChange={handleFormChange} required><option value="PAGO">PAGO</option><option value="FIADO">FIADO</option><option value="ENCOMENDA">ENCOMENDA</option></select></div>
               </div>
-              <div className="form-group">
-                <label>Produto</label>
-                <select name="prodId" className="form-control" value={formData.prodId} onChange={handleFormChange} required>
-                  <option value="">Selecione...</option>
-                  {produtos.filter(p => p.ativo).map(p => <option key={p.id} value={p.id}>{p.nome} (Estoque: {p.estoque_atual})</option>)}
-                </select>
-              </div>
+              <div className="form-group"><label>Produto</label><select name="prodId" className="form-control" value={formData.prodId} onChange={handleFormChange} required><option value="">Selecione...</option>{produtos.filter(p => p.ativo).map(p => <option key={p.id} value={p.id}>{p.nome} (Estoque: {p.estoque_atual})</option>)}</select></div>
               <div className="form-row">
-                <div className="form-group">
-                  <label>Quantidade</label>
-                  <input type="number" name="quantidade" className="form-control" min="1" value={formData.quantidade} onChange={handleFormChange} required />
-                </div>
-                
-                <div className="form-group">
-                  <label>Total Final (R$)</label>
-                  <input type="number" step="0.01" name="valorCobrado" className="form-control font-bold" style={{ borderColor: '#007bff' }} value={formData.valorCobrado} onChange={handleFormChange} required />
-                  <small style={{color: '#888'}}>Sugestão: {formatCurrency(getSugestaoValor())}</small>
-                </div>
+                <div className="form-group"><label>Quantidade</label><input type="number" name="quantidade" className="form-control" min="1" value={formData.quantidade} onChange={handleFormChange} required /></div>
+                <div className="form-group"><label>Total Final (R$)</label><input type="number" step="0.01" name="valorCobrado" className="form-control font-bold" value={formData.valorCobrado} onChange={handleFormChange} required /></div>
               </div>
-              
-              <div className="form-group">
-                <label>Observação (Opcional)</label>
-                <input type="text" name="observacao" className="form-control" placeholder="Tamanho, cor, combo 2x12..." value={formData.observacao} onChange={handleFormChange} />
-              </div>
-
-              <div className="form-buttons" style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-                <button type="submit" className="btn-primary" style={{ flex: 1 }}>{itemEditando ? 'Salvar Edição' : 'Confirmar Venda'}</button>
-              </div>
+              <div className="form-group"><label>Observação (Opcional)</label><input type="text" name="observacao" className="form-control" value={formData.observacao} onChange={handleFormChange} /></div>
+              <div className="form-buttons" style={{ display: 'flex', gap: '10px', marginTop: '20px' }}><button type="submit" className="btn-primary" style={{ flex: 1 }}>{itemEditando ? 'Salvar Edição' : 'Confirmar Venda'}</button></div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Produto */}
       {isProdutoModalOpen && (
         <div className="modal-overlay" onClick={handleCloseProdutoModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <button className="close-modal" onClick={handleCloseProdutoModal}>✖</button>
             <h2 style={{ marginTop: 0 }}>{produtoEditando ? 'Editar Produto' : 'Novo Produto'}</h2>
             <form onSubmit={handleSaveProduto} style={{ marginTop: '20px' }}>
-              <div className="form-group">
-                <label>Nome do Produto</label>
-                <input type="text" name="nome" className="form-control" value={formProduto.nome} onChange={handleProdutoFormChange} required />
-              </div>
-              
-              {/* CAMPO DE UPLOAD DE IMAGEM */}
-              <div className="form-group">
-                <label>Foto do Produto (Upload para o Site)</label>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  className="form-control" 
-                  onChange={(e) => setImagemArquivo(e.target.files[0])} 
-                  style={{ padding: '8px' }} 
-                />
-                {formProduto.imagem_url && !imagemArquivo && <small style={{color: '#28a745', display: 'block', marginTop: '5px'}}>✅ Este produto já possui uma imagem salva.</small>}
-              </div>
-
-              {/* NOVOS CAMPOS: CORES E DESCRIÇÃO */}
-              <div className="form-group">
-                <label>Cores Disponíveis (Separadas por vírgula)</label>
-                <input type="text" name="cores" className="form-control" placeholder="Ex: Preto, Azul, Cinza Mescla" value={formProduto.cores} onChange={handleProdutoFormChange} />
-              </div>
-              <div className="form-group">
-                <label>Descrição para a Loja Virtual</label>
-                <textarea name="descricao" className="form-control" rows="3" placeholder="Fale sobre o tecido, conforto, detalhes..." value={formProduto.descricao} onChange={handleProdutoFormChange}></textarea>
-              </div>
-
+              <div className="form-group"><label>Nome do Produto</label><input type="text" name="nome" className="form-control" value={formProduto.nome} onChange={handleProdutoFormChange} required /></div>
+              <div className="form-group"><label>Foto do Produto</label><input type="file" accept="image/*" className="form-control" onChange={(e) => setImagemArquivo(e.target.files[0])} style={{ padding: '8px' }} /></div>
+              <div className="form-group"><label>Cores</label><input type="text" name="cores" className="form-control" value={formProduto.cores} onChange={handleProdutoFormChange} /></div>
+              <div className="form-group"><label>Descrição</label><textarea name="descricao" className="form-control" rows="3" value={formProduto.descricao} onChange={handleProdutoFormChange}></textarea></div>
               <div className="form-row">
-                <div className="form-group">
-                  <label>Preço Venda (R$)</label>
-                  <input type="number" step="0.01" name="preco" className="form-control" value={formProduto.preco} onChange={handleProdutoFormChange} required />
-                </div>
-                <div className="form-group">
-                  <label>Custo (R$)</label>
-                  <input type="number" step="0.01" name="custo" className="form-control" value={formProduto.custo} onChange={handleProdutoFormChange} required />
-                </div>
+                <div className="form-group"><label>Preço Venda</label><input type="number" step="0.01" name="preco" className="form-control" value={formProduto.preco} onChange={handleProdutoFormChange} required /></div>
+                <div className="form-group"><label>Custo</label><input type="number" step="0.01" name="custo" className="form-control" value={formProduto.custo} onChange={handleProdutoFormChange} required /></div>
               </div>
               <div className="form-row">
-                <div className="form-group">
-                  <label>Estoque Atual</label>
-                  <input type="number" name="estoque_atual" className="form-control" value={formProduto.estoque_atual} onChange={handleProdutoFormChange} required />
-                </div>
-                <div className="form-group">
-                  <label>Alerta Mínimo</label>
-                  <input type="number" name="estoque_minimo" className="form-control" value={formProduto.estoque_minimo} onChange={handleProdutoFormChange} required />
-                </div>
+                <div className="form-group"><label>Estoque Atual</label><input type="number" name="estoque_atual" className="form-control" value={formProduto.estoque_atual} onChange={handleProdutoFormChange} required /></div>
+                <div className="form-group"><label>Alerta Mínimo</label><input type="number" name="estoque_minimo" className="form-control" value={formProduto.estoque_minimo} onChange={handleProdutoFormChange} required /></div>
               </div>
-              <div className="form-buttons" style={{ marginTop: '20px' }}>
-                <button type="submit" className="btn-primary w-100">Salvar Produto</button>
-              </div>
+              <div className="form-buttons" style={{ marginTop: '20px' }}><button type="submit" className="btn-primary w-100">Salvar Produto</button></div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Cliente */}
       {isClienteModalOpen && (
         <div className="modal-overlay" onClick={handleCloseClienteModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <button className="close-modal" onClick={handleCloseClienteModal}>✖</button>
             <h2 style={{ marginTop: 0 }}>{clienteEditando ? 'Editar Cliente' : 'Novo Cliente'}</h2>
             <form onSubmit={handleSaveCliente} style={{ marginTop: '20px' }}>
-              <div className="form-group">
-                <label>Nome Completo</label>
-                <input type="text" name="nome" className="form-control" value={formCliente.nome} onChange={handleClienteFormChange} required />
-              </div>
-              <div className="form-group">
-                <label>Telefone / WhatsApp</label>
-                <input type="text" name="telefone" className="form-control" placeholder="(51) 99999-9999" value={formCliente.telefone} onChange={handleClienteFormChange} />
-              </div>
-              <div className="form-buttons" style={{ marginTop: '20px' }}>
-                <button type="submit" className="btn-primary w-100">Salvar Cliente</button>
-              </div>
+              <div className="form-group"><label>Nome Completo</label><input type="text" name="nome" className="form-control" value={formCliente.nome} onChange={handleClienteFormChange} required /></div>
+              <div className="form-group"><label>Telefone</label><input type="text" name="telefone" className="form-control" value={formCliente.telefone} onChange={handleClienteFormChange} /></div>
+              <div className="form-buttons" style={{ marginTop: '20px' }}><button type="submit" className="btn-primary w-100">Salvar Cliente</button></div>
             </form>
           </div>
         </div>
